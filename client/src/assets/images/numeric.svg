@@ -1,0 +1,220 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:svg="http://www.w3.org/2000/svg"
+     xmlns:xhtml="http://www.w3.org/1999/xhtml"
+     version="1.1"
+     viewBox="0 0 160 50"
+     id="fuxaWidget"
+     style="border: none !important; outline: none !important; box-shadow: none !important; margin: 0; padding: 0; background: transparent;"
+     width="100%" height="100%">
+
+  <g id="fuxaSymbol">
+    <!-- Background (changes color based on enable) -->
+    <rect id="bg"
+          x="4" y="4" width="152" height="42"
+          rx="8" ry="8"
+          stroke="#333" stroke-width="2"
+          fill="#FFD966" />
+
+    <!-- Numeric value text (style stays the same enabled/disabled) -->
+    <text id="txt"
+          x="80" y="32"
+          text-anchor="middle"
+          font-family="Arial"
+          font-size="24"
+          font-weight="700"
+          fill="#111"
+          style="user-select:none;">0</text>
+
+    <!-- Click region (disabled blocks pointer events in JS) -->
+    <rect id="hit"
+          x="4" y="4" width="152" height="42"
+          fill="transparent" />
+
+    <!-- Arrows group (fully hidden when disabled) -->
+    <g id="arrows">
+      <g id="btnUp">
+        <rect x="124" y="6" width="30" height="18" rx="6" ry="6"
+              fill="#ffffff" opacity="0.35" stroke="#333" stroke-width="1.5"/>
+        <path d="M139 10 L132 20 H146 Z" fill="#111" opacity="0.9"/>
+      </g>
+      <g id="btnDown">
+        <rect x="124" y="26" width="30" height="18" rx="6" ry="6"
+              fill="#ffffff" opacity="0.35" stroke="#333" stroke-width="1.5"/>
+        <path d="M139 40 L146 30 H132 Z" fill="#111" opacity="0.9"/>
+      </g>
+    </g>
+  </g>
+
+  <script type="text/javascript"><![CDATA[
+    /*
+      FUXA Widget Notes:
+      - Bind exported variables in FUXA Properties panel.
+      - FUXA pushes tag/parameter values into this widget via putValue(id, value).
+      - This widget writes back to FUXA using postValue('_pn_value', newValue).
+    */
+
+    // =========================
+    // Exported Parameters
+    // =========================
+    //!export-start
+    let _pn_value  = 0;      // numeric value (bind to read/write tag)
+    let _pb_enable = true;   // enable/disable (bind to bool tag)
+    let _pn_min    = 0;      // min (optional: enter number or bind tag)
+    let _pn_max    = 100;    // max (optional: enter number or bind tag)
+    let _pn_step   = 1;      // step (optional: enter number or bind tag)
+    //!export-end
+
+    // Placeholder; FUXA supplies its own postValue at runtime.
+    function postValue(id, value) {
+      console.error('Not defined!');
+    }
+
+    // Make postValue globally available only if not already set by FUXA (same pattern as your example)
+    if (!window.postValue) {
+      window.postValue = postValue;
+    }
+
+    // =========================
+    // Elements
+    // =========================
+    const svgRoot = document.getElementById('fuxaWidget');
+    const bg      = document.getElementById('bg');
+    const txt     = document.getElementById('txt');
+    const hit     = document.getElementById('hit');
+    const arrows  = document.getElementById('arrows');
+    const btnUp   = document.getElementById('btnUp');
+    const btnDown = document.getElementById('btnDown');
+
+    // =========================
+    // Helpers
+    // =========================
+    function num(v, d) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : d;
+    }
+
+    function getLimits() {
+      let mn = num(_pn_min, 0);
+      let mx = num(_pn_max, 0);
+      if (mn > mx) { const t = mn; mn = mx; mx = t; }
+      return { mn, mx };
+    }
+
+    function clamp(v) {
+      const { mn, mx } = getLimits();
+      const x = num(v, mn);
+      return Math.min(mx, Math.max(mn, x));
+    }
+
+    function refresh() {
+      // Background changes only
+      bg.setAttribute('fill', _pb_enable ? '#FFD966' : '#C0C0C0');
+
+      // Numeric text stays same style
+      txt.textContent = String(num(_pn_value, 0));
+
+      // Hide arrows completely when disabled
+      arrows.style.display = _pb_enable ? 'block' : 'none';
+
+      // Disable clicks when disabled
+      const pe = _pb_enable ? 'all' : 'none';
+      hit.style.pointerEvents = pe;
+      btnUp.style.pointerEvents = pe;
+      btnDown.style.pointerEvents = pe;
+    }
+
+    function writeValue(v) {
+      const val = clamp(v);
+      _pn_value = val;
+      // Write back to FUXA tag bound to _pn_value
+      window.postValue('_pn_value', val);
+      refresh();
+    }
+
+    // =========================
+    // Click-to-enter (prompt)
+    // =========================
+    hit.addEventListener('click', function() {
+      if (!_pb_enable) return;
+      const { mn, mx } = getLimits();
+      const cur = num(_pn_value, 0);
+      const s = prompt(`Enter value (${mn} to ${mx})`, String(cur));
+      if (s === null) return; // cancelled
+      writeValue(s);
+    });
+
+    // =========================
+    // Press & Hold arrows
+    // =========================
+    let holdTimeout = null;
+    let holdInterval = null;
+
+    function stopHold() {
+      if (holdTimeout) { clearTimeout(holdTimeout); holdTimeout = null; }
+      if (holdInterval) { clearInterval(holdInterval); holdInterval = null; }
+    }
+
+    function nudge(dir) {
+      const step = num(_pn_step, 1);
+      writeValue(num(_pn_value, 0) + dir * step);
+    }
+
+    function startHold(dir) {
+      if (!_pb_enable) return;
+
+      // immediate nudge
+      nudge(dir);
+
+      stopHold();
+      holdTimeout = setTimeout(function() {
+        holdInterval = setInterval(function() {
+          nudge(dir);
+        }, 120);
+      }, 350);
+    }
+
+    function bindHold(el, dir) {
+      el.addEventListener('mousedown', function(e) { e.preventDefault(); startHold(dir); });
+      el.addEventListener('mouseup', stopHold);
+      el.addEventListener('mouseleave', stopHold);
+
+      el.addEventListener('touchstart', function(e) { e.preventDefault(); startHold(dir); }, { passive:false });
+      el.addEventListener('touchend', stopHold);
+      el.addEventListener('touchcancel', stopHold);
+    }
+
+    bindHold(btnUp, +1);
+    bindHold(btnDown, -1);
+
+    // =========================
+    // FUXA -> Widget updates
+    // =========================
+    function putValue(id, value) {
+      if (id === '_pn_value')  _pn_value  = num(value, _pn_value);
+      if (id === '_pb_enable') _pb_enable = (value === true || value === 1 || value === '1');
+      if (id === '_pn_min')    _pn_min    = num(value, _pn_min);
+      if (id === '_pn_max')    _pn_max    = num(value, _pn_max);
+      if (id === '_pn_step')   _pn_step   = num(value, _pn_step);
+
+      refresh();
+    }
+
+    // =========================
+    // Init (similar to your example)
+    // =========================
+    function init() {
+      stopHold();
+      refresh();
+    }
+
+    init();
+
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') {
+        setTimeout(function(){ init(); }, 10);
+      }
+    });
+
+  ]]></script>
+</svg>
